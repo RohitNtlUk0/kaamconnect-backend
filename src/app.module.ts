@@ -1,11 +1,19 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import configuration from './config/configuration';
 import { DatabaseModule } from './database/database.module';
 import { FirebaseAdminModule } from './firebase/firebase-admin.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { BookingsModule } from './bookings/bookings.module';
+import { WorkersModule } from './workers/workers.module';
+import { PaymentsModule } from './payments/payments.module';
+import { AdminModule } from './admin/admin.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { ChatModule } from './chat/chat.module';
+import { B2BModule } from './b2b/b2b.module';
 
 @Module({
   imports: [
@@ -32,6 +40,19 @@ import { AuthModule } from './auth/auth.module';
     FirebaseAdminModule,
     UsersModule,
     AuthModule,
+    BookingsModule,
+    WorkersModule,
+    PaymentsModule,
+    AdminModule,
+    NotificationsModule,
+    ChatModule,
+    B2BModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}

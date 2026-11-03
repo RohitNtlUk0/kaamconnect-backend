@@ -53,9 +53,18 @@ export class FirebaseAdminService implements OnModuleInit {
         this.logger.log(`Firebase Admin initialized from environment variables for project: ${fbConfig.projectId}`);
         this.isInitialized = true;
       } else {
-        this.logger.warn(
-          'Firebase credentials (serviceAccountKey.json or env vars) not provided. Running in sandbox development mode.',
-        );
+        // Attempt application default credentials (ADC)
+        try {
+          this.firebaseApp = admin.initializeApp({
+            projectId: fbConfig.projectId,
+          });
+          this.isInitialized = true;
+          this.logger.log(`Firebase Admin initialized with default credentials for project: ${fbConfig.projectId}`);
+        } catch (e) {
+          this.logger.error(
+            'CRITICAL: Firebase service account credentials (serviceAccountKey.json or FIREBASE_PRIVATE_KEY) not found. Cryptographic token verification requires valid credentials.',
+          );
+        }
       }
     } catch (error) {
       this.logger.error(`Failed to initialize Firebase Admin SDK: ${error.message}`);
@@ -63,23 +72,24 @@ export class FirebaseAdminService implements OnModuleInit {
   }
 
   /**
-   * Securely verifies a Firebase ID Token using Firebase Admin SDK.
+   * Cryptographically verifies a Firebase ID Token using Firebase Admin SDK.
    * Ensures token has not been revoked and that the phone number is a valid Indian number (+91).
+   * Strict security: Zero unverified fallback.
    */
   async verifyIdToken(idToken: string): Promise<VerifiedFirebaseUser> {
     if (!idToken || typeof idToken !== 'string') {
       throw new BadRequestException('Firebase ID Token is required and must be a valid string');
     }
 
-    // If Firebase Admin is not initialized in local test environment, provide sandbox parsing
     if (!this.isInitialized) {
-      this.logger.warn('Firebase Admin not initialized with live credentials. Fallback verification active.');
-      // Extract unverified claims for sandbox/dev testing if valid JWT structure
-      return this.parseDevToken(idToken);
+      this.logger.error('Token verification rejected: Firebase Admin SDK is not initialized with server credentials.');
+      throw new UnauthorizedException(
+        'Server configuration error: Firebase Admin credentials not loaded. Please contact platform administrator.',
+      );
     }
 
     try {
-      // checkRevoked = true ensures revoked sessions are immediately rejected
+      // checkRevoked = true cryptographically asserts the token is active and unrevoked
       const decodedToken = await admin.auth().verifyIdToken(idToken, true);
 
       const phoneNumber = decodedToken.phone_number;
@@ -101,7 +111,9 @@ export class FirebaseAdminService implements OnModuleInit {
         authTime: decodedToken.auth_time,
       };
     } catch (error) {
-      if (error instanceof BadRequestException) throw error;
+      if (error instanceof BadRequestException || error instanceof UnauthorizedException) {
+        throw error;
+      }
 
       if (error.code === 'auth/id-token-expired') {
         throw new UnauthorizedException('Firebase ID Token has expired. Please re-authenticate.');
@@ -113,32 +125,84 @@ export class FirebaseAdminService implements OnModuleInit {
         throw new BadRequestException('Malformed Firebase ID Token structure.');
       }
 
-      this.logger.error(`ID Token verification failed: ${error.message}`);
+      this.logger.error(`Cryptographic ID Token verification failed: ${error.message}`);
       throw new UnauthorizedException('Invalid Firebase ID Token: ' + error.message);
     }
   }
 
-  private parseDevToken(token: string): VerifiedFirebaseUser {
-    try {
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-        if (payload.phone_number) {
-          return {
-            uid: payload.user_id || payload.sub || 'dev_uid_123',
-            phoneNumber: payload.phone_number,
-            authTime: Math.floor(Date.now() / 1000),
-          };
-        }
-      }
-    } catch (e) {
-      // Ignore
+  /**
+   * Sends an authentic FCM push notification to a device registration token
+   */
+  async sendPushNotification(
+    token: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    if (!token || !token.trim()) {
+      return { success: false, error: 'Target device token is missing' };
     }
-    // Default fallback test user
-    return {
-      uid: 'dev_firebase_uid_' + Date.now(),
-      phoneNumber: '+919876543210',
-      authTime: Math.floor(Date.now() / 1000),
-    };
+
+    if (!this.isInitialized) {
+      this.logger.warn(`FCM send skipped (SDK uninitialized): "${title}" -> ${token.substring(0, 10)}...`);
+      return { success: false, error: 'Firebase Admin SDK not initialized' };
+    }
+
+    try {
+      const message: admin.messaging.Message = {
+        token: token.trim(),
+        notification: {
+          title,
+          body,
+        },
+        data: data || {},
+        android: {
+          priority: 'high',
+          notification: {
+            sound: 'default',
+            channelId: 'kaamconnect_high_importance_channel',
+          },
+        },
+      };
+
+      const messageId = await admin.messaging().send(message);
+      this.logger.log(`FCM push notification dispatched: ${messageId} ("${title}")`);
+      return { success: true, messageId };
+    } catch (error) {
+      this.logger.error(`FCM dispatch error: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Sends an authentic FCM push notification to a subscribed topic (e.g. 'all_workers_delhi', 'announcements')
+   */
+  async sendTopicNotification(
+    topic: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    if (!this.isInitialized) {
+      return { success: false, error: 'Firebase Admin SDK not initialized' };
+    }
+
+    try {
+      const message: admin.messaging.Message = {
+        topic,
+        notification: {
+          title,
+          body,
+        },
+        data: data || {},
+      };
+
+      const messageId = await admin.messaging().send(message);
+      this.logger.log(`FCM topic message dispatched to ${topic}: ${messageId}`);
+      return { success: true, messageId };
+    } catch (error) {
+      this.logger.error(`FCM topic error: ${error.message}`);
+      return { success: false, error: error.message };
+    }
   }
 }

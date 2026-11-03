@@ -12,6 +12,21 @@ async function bootstrap() {
   const port = configService.get<number>('port') || 3000;
   const apiPrefix = configService.get<string>('apiPrefix') || 'api/v1';
 
+  // Security Hardening: Disable fingerprinting & set protective HTTP headers
+  const expressApp = app.getHttpAdapter().getInstance();
+  if (expressApp && expressApp.disable) {
+    expressApp.disable('x-powered-by');
+  }
+
+  app.use((req: any, res: any, next: any) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+
   // Enable Cross-Origin Resource Sharing
   app.enableCors({
     origin: '*',

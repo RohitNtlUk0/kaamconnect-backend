@@ -17,7 +17,7 @@ export default () => ({
   },
   firebase: {
     serviceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH || './serviceAccountKey.json',
-    projectId: process.env.FIREBASE_PROJECT_ID || 'kaamconnect-84f23',
+    projectId: process.env.FIREBASE_PROJECT_ID || 'kaamconnect-90864',
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL || '',
     privateKey: process.env.FIREBASE_PRIVATE_KEY
       ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')

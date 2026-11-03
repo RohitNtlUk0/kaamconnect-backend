@@ -32,6 +32,25 @@ export class AuthController {
   }
 
   /**
+   * Secure Admin Authentication Endpoint
+   * Returns a signed JWT with role: 'ADMIN' for RBAC authorization
+   */
+  @Post('admin-login')
+  @HttpCode(HttpStatus.OK)
+  async adminLogin(@Body() body: { adminKey: string }, @Req() req: Request) {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'Unknown Client';
+
+    const result = await this.authService.loginAdmin(body.adminKey, clientIp, userAgent);
+
+    return {
+      success: true,
+      message: 'Master Admin authenticated successfully',
+      data: result,
+    };
+  }
+
+  /**
    * Protected endpoint to get current authenticated user profile
    */
   @Get('me')
