@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import configuration from './config/configuration';
+import { AppController } from './app.controller';
 import { DatabaseModule } from './database/database.module';
 import { FirebaseAdminModule } from './firebase/firebase-admin.module';
 import { UsersModule } from './users/users.module';
@@ -48,6 +49,7 @@ import { B2BModule } from './b2b/b2b.module';
     ChatModule,
     B2BModule,
   ],
+  controllers: [AppController],
   providers: [
     {
       provide: APP_GUARD,

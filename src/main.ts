@@ -34,8 +34,10 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Global Route Prefix
-  app.setGlobalPrefix(apiPrefix);
+  // Global Route Prefix (exclude root status page and healthcheck)
+  app.setGlobalPrefix(apiPrefix, {
+    exclude: ['/', 'health'],
+  });
 
   // Global Input Validation & Sanitization
   app.useGlobalPipes(
