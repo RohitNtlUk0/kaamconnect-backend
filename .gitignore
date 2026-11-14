@@ -22,3 +22,7 @@ Thumbs.db
 
 # Service account private credentials
 serviceAccountKey.json
+
+# WhatsApp private session
+whatsapp_session/
+

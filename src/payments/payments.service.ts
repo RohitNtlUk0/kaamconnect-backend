@@ -329,6 +329,23 @@ export class PaymentsService {
    * 5. Worker Payout Dispatch with Bank Reference Validation
    */
   async processWorkerPayout(dto: WorkerPayoutDto) {
+    // 0. Idempotency check: Prevent duplicate payouts for the same booking
+    if (dto.bookingId) {
+      try {
+        const existing = await this.db.query(
+          `SELECT id, status, created_at FROM payouts WHERE booking_id = $1 AND status = 'SUCCESS' LIMIT 1;`,
+          [dto.bookingId],
+        );
+        if (existing && existing.rows && existing.rows.length > 0) {
+          throw new BadRequestException(
+            `Payout for Booking ${dto.bookingId} has already been disbursed (${existing.rows[0].id}). Duplicate payout prevented.`,
+          );
+        }
+      } catch (e) {
+        if (e instanceof BadRequestException) throw e;
+      }
+    }
+
     // 1. Verify worker exists with resilient fallback
     let worker = { id: dto.workerId, full_name: 'Karigar Partner', phone_number: '+919123456789', bank_upi_id: dto.destinationUpi, wallet_balance: 1000 };
     try {

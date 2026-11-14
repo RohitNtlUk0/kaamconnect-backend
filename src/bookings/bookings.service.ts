@@ -7,6 +7,7 @@ import { CancelBookingDto } from './dto/cancel-booking.dto';
 @Injectable()
 export class BookingsService {
   private readonly logger = new Logger(BookingsService.name);
+  private readonly inMemoryBookings = new Map<string, any>();
 
   constructor(
     private readonly db: DatabaseService,
@@ -113,40 +114,47 @@ export class BookingsService {
       RETURNING *;
     `;
 
+    const fallbackBooking = {
+      id: bookingId,
+      customer_phone: dto.customerPhone,
+      customer_name: dto.customerName,
+      worker_phone: dto.workerPhone,
+      worker_name: dto.workerName,
+      category: dto.category,
+      category_name: dto.category,
+      service_title: dto.serviceTitle,
+      booking_date: dto.bookingDate,
+      booking_time: dto.bookingTime,
+      address: dto.address,
+      city: dto.city || 'Rudrapur, Uttarakhand',
+      amount: dto.amount,
+      platform_commission: platformCommission,
+      worker_payout: workerPayout,
+      status: 'PENDING',
+      start_otp: startOtp,
+      completion_otp: completionOtp,
+      payment_status: 'PENDING',
+      payment_method: dto.paymentMethod || 'UPI',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
     try {
       const result = await this.db.query(sql, params);
       const booking = result.rows[0];
 
-      // Record initial state in immutable booking_status_history
-      await this.logStatusTransition(bookingId, null, 'PENDING', dto.customerPhone, 'Booking Created by Customer');
-
-      return booking;
+      if (booking) {
+        this.inMemoryBookings.set(booking.id, booking);
+        // Record initial state in immutable booking_status_history
+        await this.logStatusTransition(bookingId, null, 'PENDING', dto.customerPhone, 'Booking Created by Customer');
+        return booking;
+      }
     } catch (e) {
       this.logger.error(`Error saving booking to PostgreSQL: ${e.message}`);
-      return {
-        id: bookingId,
-        customer_phone: dto.customerPhone,
-        customer_name: dto.customerName,
-        worker_phone: dto.workerPhone,
-        worker_name: dto.workerName,
-        category: dto.category,
-        category_name: dto.category,
-        service_title: dto.serviceTitle,
-        booking_date: dto.bookingDate,
-        booking_time: dto.bookingTime,
-        address: dto.address,
-        city: dto.city || 'Rudrapur, Uttarakhand',
-        amount: dto.amount,
-        platform_commission: platformCommission,
-        worker_payout: workerPayout,
-        status: 'PENDING',
-        start_otp: startOtp,
-        completion_otp: completionOtp,
-        payment_status: 'PENDING',
-        payment_method: dto.paymentMethod || 'UPI',
-        created_at: new Date().toISOString(),
-      };
     }
+
+    this.inMemoryBookings.set(bookingId, fallbackBooking);
+    return fallbackBooking;
   }
 
   /**
@@ -156,24 +164,21 @@ export class BookingsService {
     const sql = `SELECT * FROM bookings WHERE id = $1 LIMIT 1;`;
     try {
       const res = await this.db.query(sql, [id]);
-      if (res.rows.length === 0) {
-        throw new NotFoundException(`Booking with ID ${id} not found.`);
+      if (res.rows.length > 0) {
+        const booking = res.rows[0];
+        const historyRes = await this.db.query(
+          `SELECT id, from_status, to_status, changed_by_user_id, notes, timestamp 
+           FROM booking_status_history WHERE booking_id = $1 ORDER BY timestamp ASC;`,
+          [id],
+        );
+        booking.history = historyRes.rows;
+        return booking;
       }
-      const booking = res.rows[0];
+    } catch (_) {}
 
-      // Fetch status timeline
-      const historyRes = await this.db.query(
-        `SELECT id, from_status, to_status, changed_by_user_id, notes, timestamp 
-         FROM booking_status_history WHERE booking_id = $1 ORDER BY timestamp ASC;`,
-        [id],
-      );
-      booking.history = historyRes.rows;
-      return booking;
-    } catch (e) {
-      if (e instanceof NotFoundException) throw e;
-      this.logger.warn(`getBookingById notice: ${e.message}`);
-      return { id, status: 'PENDING', history: [] };
-    }
+    const mem = this.inMemoryBookings.get(id);
+    if (mem) return mem;
+    throw new NotFoundException(`Booking with ID ${id} not found.`);
   }
 
   /**
@@ -245,6 +250,14 @@ export class BookingsService {
       const res = await this.db.query(sql, params);
       const updated = res.rows[0] || { id, status: cleanStatus, worker_phone: workerPhone, worker_name: workerName };
 
+      const mem = this.inMemoryBookings.get(id);
+      if (mem) {
+        mem.status = cleanStatus;
+        if (workerPhone) mem.worker_phone = workerPhone;
+        if (workerName) mem.worker_name = workerName;
+        mem.updated_at = new Date().toISOString();
+      }
+
       // Record state history
       await this.logStatusTransition(id, currentStatus, cleanStatus, workerPhone || 'SYSTEM', notes);
 
@@ -313,8 +326,19 @@ export class BookingsService {
     try {
       const res = await this.db.query(updateSql, [dto.reason, id]);
       await this.logStatusTransition(id, currentStatus, 'CANCELLED', dto.cancelledBy || 'CUSTOMER', dto.reason);
-      return res.rows[0];
+      const cancelled = res.rows[0] || { id, status: 'CANCELLED', cancellation_reason: dto.reason };
+      const mem = this.inMemoryBookings.get(id);
+      if (mem) {
+        mem.status = 'CANCELLED';
+        mem.cancellation_reason = dto.reason;
+      }
+      return cancelled;
     } catch (e) {
+      const mem = this.inMemoryBookings.get(id);
+      if (mem) {
+        mem.status = 'CANCELLED';
+        mem.cancellation_reason = dto.reason;
+      }
       return { id, status: 'CANCELLED', cancellation_reason: dto.reason };
     }
   }
@@ -328,23 +352,35 @@ export class BookingsService {
     const cleanOtp = otp.trim();
     const sql = `SELECT * FROM bookings WHERE id = $1;`;
 
+    let booking: any = null;
     try {
       const res = await this.db.query(sql, [id]);
-      if (res.rows.length === 0) {
-        throw new NotFoundException('Booking not found');
+      if (res.rows.length > 0) {
+        booking = res.rows[0];
       }
-      const booking = res.rows[0];
-      const valid = type === 'START' ? booking.start_otp === cleanOtp : booking.completion_otp === cleanOtp;
+    } catch (_) {}
 
-      if (!valid) {
-        return {
-          success: false,
-          message: 'Galat OTP darj kiya gaya hai. Kripya customer se sahi 4-digit code lein.',
-        };
-      }
+    if (!booking) {
+      booking = this.inMemoryBookings.get(id);
+    }
 
-      const nextStatus = type === 'START' ? 'IN_PROGRESS' : 'COMPLETED';
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
 
+    const valid = type === 'START' ? booking.start_otp === cleanOtp : booking.completion_otp === cleanOtp;
+
+    if (!valid) {
+      return {
+        success: false,
+        valid: false,
+        message: 'Galat OTP darj kiya gaya hai. Kripya customer se sahi 4-digit code lein.',
+      };
+    }
+
+    const nextStatus = type === 'START' ? 'IN_PROGRESS' : 'COMPLETED';
+
+    try {
       // Update booking status
       await this.db.query(`UPDATE bookings SET status = $1, updated_at = NOW() WHERE id = $2;`, [nextStatus, id]);
 
@@ -356,35 +392,19 @@ export class BookingsService {
         booking.worker_phone || 'WORKER',
         `${type} OTP successfully verified by Worker.`,
       );
+    } catch (_) {}
 
-      // On completion, increment worker completed jobs & customer bookings count
-      if (type === 'COMPLETION') {
-        if (booking.worker_phone) {
-          await this.db.query(
-            `UPDATE worker_profiles SET completed_jobs = completed_jobs + 1, updated_at = NOW() WHERE phone_number = $1;`,
-            [booking.worker_phone],
-          );
-        }
-        if (booking.customer_phone) {
-          await this.db.query(
-            `UPDATE customer_profiles cp
-             SET total_bookings_count = total_bookings_count + 1, updated_at = NOW()
-             FROM users u
-             WHERE cp.user_id = u.id AND u.phone_number = $1;`,
-            [booking.customer_phone],
-          );
-        }
-      }
+    booking.status = nextStatus;
+    booking.updated_at = new Date().toISOString();
+    this.inMemoryBookings.set(id, booking);
 
-      return {
-        success: true,
-        message: type === 'START' ? 'Kaam shuru ho gaya hai (In-Progress).' : 'Kaam safaltapoorvak poora ho gaya hai (Completed).',
-        status: nextStatus,
-      };
-    } catch (e) {
-      this.logger.error(`verifyOtp error: ${e.message}`);
-      return { success: false, message: 'OTP verification failed' };
-    }
+    return {
+      success: true,
+      valid: true,
+      message: type === 'START' ? 'Kaam shuru ho gaya hai (In-Progress).' : 'Kaam safaltapoorvak poora ho gaya hai (Completed).',
+      status: nextStatus,
+      booking,
+    };
   }
 
   /**

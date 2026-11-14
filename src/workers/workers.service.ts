@@ -226,7 +226,7 @@ export class WorkersService {
            RETURNING id`,
           ['phone_' + fullPhone.replace('+', ''), fullPhone, dto.fullName || 'Karigar Partner'],
         );
-        userId = newUser.rows[0].id;
+        userId = newUser.rows[0]?.id || ('usr_' + fullPhone.replace('+', ''));
       }
     } catch (e) {
       this.logger.error(`Error resolving user for worker: ${e.message}`);

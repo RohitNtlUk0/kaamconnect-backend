@@ -104,18 +104,36 @@ export class AuthService {
     }
   }
 
-  /**
-   * Secure Admin Authentication with Role-Based JWT
-   */
-  async loginAdmin(adminKey: string, clientIp?: string, userAgent?: string) {
-    const serverKey = process.env.ADMIN_SECRET_KEY || 'Admin@KaamConnect2026';
-    const fallbackRootKey = 'KC_ROOT_MASTER_KEY';
+  private readonly adminFailedAttempts = new Map<string, { count: number; lockedUntil: number }>();
 
+  /**
+   * Secure Admin Authentication with Role-Based JWT and Brute-Force Protection
+   */
+  async loginAdmin(adminKey: string, clientIp: string = '127.0.0.1', userAgent?: string) {
+    const lockInfo = this.adminFailedAttempts.get(clientIp);
+    if (lockInfo && lockInfo.lockedUntil > Date.now()) {
+      const waitMin = Math.ceil((lockInfo.lockedUntil - Date.now()) / 60000);
+      throw new ForbiddenException(`Too many failed admin login attempts. Client IP locked for ${waitMin} minutes.`);
+    }
+
+    const serverKey = process.env.ADMIN_SECRET_KEY || 'Admin@KaamConnect2026';
     const clean = (adminKey || '').trim();
-    if (clean !== serverKey && clean !== fallbackRootKey) {
-      this.logger.warn(`Failed admin login attempt from IP: ${clientIp}`);
+
+    if (clean !== serverKey) {
+      const current = lockInfo || { count: 0, lockedUntil: 0 };
+      current.count += 1;
+      if (current.count >= 5) {
+        current.lockedUntil = Date.now() + 15 * 60 * 1000; // 15 mins lock
+        this.logger.error(`Brute-force protection: IP ${clientIp} locked out from Admin login for 15 minutes.`);
+      }
+      this.adminFailedAttempts.set(clientIp, current);
+
+      this.logger.warn(`Failed admin login attempt (${current.count}/5) from IP: ${clientIp}`);
       throw new UnauthorizedException('Invalid Admin Security Key');
     }
+
+    // Clear failed attempts on successful verification
+    this.adminFailedAttempts.delete(clientIp);
 
     // Generate Admin JWT Token with ADMIN role
     const payload = {
