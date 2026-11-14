@@ -89,10 +89,16 @@ export class PaymentsService {
       .update(bodyToSign)
       .digest('hex');
 
-    // If live signature doesn't match and not using verified mock token in dev
-    const isSignatureValid = 
-      crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(expectedSignature)) &&
-      (dto.gatewaySignature === expectedSignature || dto.gatewaySignature.startsWith('sig_verified_') || dto.gatewaySignature.length >= 32);
+    let isSignatureValid = false;
+    try {
+      const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+      const incomingBuf = Buffer.from(dto.gatewaySignature || '', 'utf8');
+      if (expectedBuf.length === incomingBuf.length) {
+        isSignatureValid = crypto.timingSafeEqual(expectedBuf, incomingBuf);
+      }
+    } catch (_) {
+      isSignatureValid = false;
+    }
 
     if (!isSignatureValid) {
       this.logger.warn(`Signature verification failed for order ${dto.gatewayOrderId}`);
@@ -347,7 +353,7 @@ export class PaymentsService {
     }
 
     // 1. Verify worker exists with resilient fallback
-    let worker = { id: dto.workerId, full_name: 'Karigar Partner', phone_number: '+919123456789', bank_upi_id: dto.destinationUpi, wallet_balance: 1000 };
+    let worker = { id: dto.workerId, full_name: 'Karigar Partner', phone_number: dto.workerId, bank_upi_id: dto.destinationUpi, wallet_balance: 0 };
     try {
       const workerRes = await this.db.query(
         `SELECT id, full_name, phone_number, bank_upi_id, wallet_balance FROM worker_profiles WHERE id = $1;`,

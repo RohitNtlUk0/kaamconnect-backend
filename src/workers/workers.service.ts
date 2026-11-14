@@ -7,6 +7,7 @@ import { SubmitKycDto } from './dto/submit-kyc.dto';
 @Injectable()
 export class WorkersService {
   private readonly logger = new Logger(WorkersService.name);
+  readonly inMemoryWorkers = new Map<string, any>();
 
   constructor(private readonly db: DatabaseService) {}
 
@@ -63,60 +64,13 @@ export class WorkersService {
       this.logger.warn(`getWorkers query notice: ${e.message}`);
     }
 
-    // Default Seed Data if database is fresh
-    return [
-      {
-        id: 'w_1',
-        full_name: 'Rajesh Kumar',
-        phone_number: '+919876543210',
-        profession: 'Electrician',
-        category_name: 'Electrician',
-        rating: 4.9,
-        completed_jobs: 142,
-        hourly_rate: 399,
-        experience_years: 6,
-        city: 'Rudrapur',
-        state: 'Uttarakhand',
-        is_available: true,
-        kyc_status: 'verified',
-        latitude: 28.9834,
-        longitude: 79.4082,
-      },
-      {
-        id: 'w_2',
-        full_name: 'Amit Sharma',
-        phone_number: '+919876543211',
-        profession: 'Plumber',
-        category_name: 'Plumber',
-        rating: 4.8,
-        completed_jobs: 98,
-        hourly_rate: 349,
-        experience_years: 5,
-        city: 'Rudrapur',
-        state: 'Uttarakhand',
-        is_available: true,
-        kyc_status: 'verified',
-        latitude: 28.9782,
-        longitude: 79.4125,
-      },
-      {
-        id: 'w_3',
-        full_name: 'Sunil Verma',
-        phone_number: '+919876543212',
-        profession: 'Carpenter',
-        category_name: 'Carpenter',
-        rating: 4.7,
-        completed_jobs: 85,
-        hourly_rate: 450,
-        experience_years: 7,
-        city: 'Rudrapur',
-        state: 'Uttarakhand',
-        is_available: true,
-        kyc_status: 'verified',
-        latitude: 28.9910,
-        longitude: 79.3950,
-      },
-    ];
+    const memWorkers = Array.from(this.inMemoryWorkers.values()).filter(
+      (w, i, self) => i === self.findIndex((t) => t.phone_number === w.phone_number),
+    );
+    if (memWorkers.length > 0) return memWorkers;
+
+    // Zero fake workers in production: clean empty array when no real verified workers registered
+    return [];
   }
 
   /**
@@ -176,23 +130,10 @@ export class WorkersService {
       this.logger.warn(`getWorkerProfile query failed: ${e.message}`);
     }
 
-    return {
-      id: identifier,
-      phone_number: identifier,
-      full_name: 'KaamConnect Karigar',
-      profession: 'Technician',
-      hourly_rate: 350,
-      daily_rate: 1200,
-      experience_years: 3,
-      rating: 4.9,
-      reviews_count: 24,
-      completed_jobs: 48,
-      is_available: true,
-      kyc_status: 'PENDING',
-      city: 'Rudrapur',
-      state: 'Uttarakhand',
-      documents: [],
-    };
+    const mem = this.inMemoryWorkers.get(identifier);
+    if (mem) return mem;
+
+    throw new NotFoundException(`Worker profile with identifier ${identifier} not found.`);
   }
 
   /**
@@ -275,6 +216,36 @@ export class WorkersService {
         updated_at = NOW()
       RETURNING *;
     `;
+
+    const inMemWorker = {
+      id: 'wrk_' + fullPhone.replace('+', ''),
+      user_id: userId,
+      full_name: dto.fullName || 'Karigar Partner',
+      phone_number: fullPhone,
+      profession: dto.profession || 'Technician',
+      category_name: dto.profession || 'Technician',
+      hourly_rate: dto.hourlyRate || 350,
+      daily_rate: dto.dailyRate || 1200,
+      experience_years: dto.experienceYears || 2,
+      bio: dto.bio || '',
+      rating: 5.0,
+      reviews_count: 0,
+      completed_jobs: 0,
+      wallet_balance: 0,
+      is_available: true,
+      is_b2b_ready: dto.isB2BReady || false,
+      city: dto.city || 'Rudrapur',
+      state: dto.state || 'Uttarakhand',
+      kyc_status: 'PENDING',
+      police_verification_status: 'NOT_SUBMITTED',
+      latitude: dto.latitude || 28.9834,
+      longitude: dto.longitude || 79.4082,
+      documents: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    this.inMemoryWorkers.set(fullPhone, inMemWorker);
+    this.inMemoryWorkers.set(inMemWorker.id, inMemWorker);
 
     try {
       await this.db.query(sql, params);
@@ -450,6 +421,11 @@ export class WorkersService {
   async toggleOnlineStatus(phone: string, isOnline: boolean) {
     const cleanPhone = phone.trim();
     const fullPhone = cleanPhone.startsWith('+91') ? cleanPhone : '+91' + cleanPhone.replace(/^0+/, '');
+    const mem = this.inMemoryWorkers.get(fullPhone);
+    if (mem) {
+      mem.is_available = isOnline;
+      this.inMemoryWorkers.set(fullPhone, mem);
+    }
     const sql = `UPDATE worker_profiles SET is_available = $1, updated_at = NOW() WHERE phone_number = $2 RETURNING *;`;
     try {
       const res = await this.db.query(sql, [isOnline, fullPhone]);

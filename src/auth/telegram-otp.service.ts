@@ -166,7 +166,7 @@ export class TelegramOtpService implements OnModuleInit, OnModuleDestroy {
       throw new ForbiddenException('Bahut saari galat koshishein. Kripya 5 minute baad naya OTP bhejein.');
     }
 
-    const isMatch = submittedOtp === record.otpCode || submittedOtp === '123456';
+    const isMatch = submittedOtp === record.otpCode;
 
     if (!isMatch) {
       record.attempts += 1;

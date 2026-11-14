@@ -466,42 +466,8 @@ export class BookingsService {
       this.logger.warn(`getNearbyJobLeads notice: ${e.message}`);
     }
 
-    // Default Seed Leads if DB is completely fresh
-    return [
-      {
-        id: 'LEAD-101',
-        title: 'Emergency MCB & Switchboard Sparking',
-        category: 'Electrician',
-        location: 'Civil Lines, Rudrapur',
-        distanceKm: 0.8,
-        date: 'Today',
-        time: 'Immediate',
-        payout: 499,
-        status: 'new',
-      },
-      {
-        id: 'LEAD-102',
-        title: 'Main Pipeline Leakage & Valve Repair',
-        category: 'Plumber',
-        location: 'Kashipur Bypass Road, Rudrapur',
-        distanceKm: 1.4,
-        date: 'Today',
-        time: 'Within 2 Hours',
-        payout: 399,
-        status: 'new',
-      },
-      {
-        id: 'LEAD-103',
-        title: 'Modular Kitchen Door Hinge & Lock Fix',
-        category: 'Carpenter',
-        location: 'Awas Vikas, Rudrapur',
-        distanceKm: 2.1,
-        date: 'Tomorrow',
-        time: '10:00 AM',
-        payout: 550,
-        status: 'new',
-      },
-    ];
+    // Zero fake job leads in production: clean empty array when no real bookings available
+    return [];
   }
 
   private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
