@@ -7,7 +7,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD in your local environment}
       POSTGRES_DB: kaamconnect_db
     ports:
       - "5432:5432"
@@ -33,16 +33,24 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
-      DATABASE_PASSWORD: postgrespassword
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD in your local environment}
       DATABASE_NAME: kaamconnect_db
-      JWT_SECRET: kaamconnect_secure_jwt_secret_key_prod_2026
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in your local environment}
+      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:?Set ADMIN_SECRET_KEY in your local environment}
       JWT_EXPIRES_IN: 30d
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-kaamconnect-app}
       FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
       FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      WHATSAPP_OTP_ENABLED: ${WHATSAPP_OTP_ENABLED:-false}
+      WHATSAPP_OTP_PROVIDER: ${WHATSAPP_OTP_PROVIDER:-baileys}
+      WHATSAPP_OTP_HASH_SECRET: ${WHATSAPP_OTP_HASH_SECRET:-}
+      WHATSAPP_SESSION_PATH: /app/whatsapp_session
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - whatsapp_session:/app/whatsapp_session
 
 volumes:
   pgdata:
+  whatsapp_session:

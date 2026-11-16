@@ -8,6 +8,7 @@ import { WhatsAppOtpService } from './whatsapp-otp.service';
 import { DirectWhatsAppService } from './direct-whatsapp.service';
 import { TelegramOtpService } from './telegram-otp.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { RolesGuard } from './guards/roles.guard';
 import { UsersModule } from '../users/users.module';
 
 @Module({
@@ -17,7 +18,7 @@ import { UsersModule } from '../users/users.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get('jwt.secret') || 'kaamconnect_secret_fallback',
+        secret: configService.getOrThrow<string>('jwt.secret'),
         signOptions: {
           expiresIn: configService.get('jwt.expiresIn') || '30d',
         },
@@ -32,6 +33,7 @@ import { UsersModule } from '../users/users.module';
     DirectWhatsAppService,
     TelegramOtpService,
     JwtStrategy,
+    RolesGuard,
   ],
   exports: [
     AuthService,

@@ -44,6 +44,10 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       await this.runProductionMigrations();
     } catch (error) {
       this.logger.warn(`PostgreSQL connection notice: ${error.message}. Running in resilient mode.`);
+      if (this.configService.get('nodeEnv') === 'production') {
+        await this.pool.end();
+        throw error;
+      }
     }
   }
 
@@ -158,14 +162,38 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     if (!schemaSql) {
       this.logger.warn('Production schema SQL file not found on disk; skipping auto-migration.');
+      if (this.configService.get('nodeEnv') === 'production') {
+        throw new Error('Production database schema file is missing.');
+      }
       return;
     }
 
     try {
       await this.pool.query(schemaSql);
-      this.logger.log('Production PostgreSQL Schema Verified: All 29 tables, PostGIS extensions & triggers are ACTIVE.');
+      // Extend older role enums before new app roles are used by OTP login.
+      await this.pool.query("ALTER TYPE user_role_enum ADD VALUE IF NOT EXISTS 'EMPLOYER'");
+      await this.pool.query("ALTER TYPE user_role_enum ADD VALUE IF NOT EXISTS 'AGENT'");
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS whatsapp_otp_challenges (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          phone_number VARCHAR(20) NOT NULL,
+          role user_role_enum NOT NULL DEFAULT 'CUSTOMER',
+          code_hash CHAR(64) NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          sent_at TIMESTAMPTZ,
+          verified_at TIMESTAMPTZ,
+          attempt_count SMALLINT NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 5),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await this.pool.query(`CREATE INDEX IF NOT EXISTS idx_whatsapp_otp_phone_created
+        ON whatsapp_otp_challenges(phone_number, created_at DESC)`);
+      await this.pool.query(`CREATE INDEX IF NOT EXISTS idx_whatsapp_otp_expiry
+        ON whatsapp_otp_challenges(expires_at)`);
+      this.logger.log('Production PostgreSQL schema and WhatsApp OTP challenge table are ready.');
     } catch (err) {
-      this.logger.error(`Migration notice: ${err.message}`);
+      this.logger.error(`Migration failed: ${err.message}`);
+      if (this.configService.get('nodeEnv') === 'production') throw err;
     }
   }
 }

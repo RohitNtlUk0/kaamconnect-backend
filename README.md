@@ -1,6 +1,6 @@
 # KaamConnect Production Backend
 
-Production-grade NestJS REST API with Firebase Admin SDK authentication and PostgreSQL database persistence.
+NestJS REST API with Firebase Admin authentication, PostgreSQL persistence, and an optional WhatsApp OTP channel backed by Baileys. Firebase SMS remains available when WhatsApp is not configured and connected.
 
 ## Architecture & Technology Stack
 
@@ -10,17 +10,19 @@ Production-grade NestJS REST API with Firebase Admin SDK authentication and Post
 - **Security & Abuse**:
   - NestJS Throttler rate limiting (max 5 OTP login attempts / minute / IP)
   - Persistent `auth_audit_logs` tracking phone numbers, IPs, and lockouts (5 failed attempts locks phone for 15 mins)
-  - Never stores passwords or OTPs (Firebase Phone Auth manages delivery & verification)
+  - WhatsApp OTP challenges are stored as keyed hashes, expire after five minutes, and are limited to five verification attempts
+  - Firebase Phone Auth remains the fallback; plaintext OTPs are never written to the database or logs
 - **Authorization**: Passport JWT strategy issuing application-level tokens with RBAC (Worker, Employer, Agent, Admin)
 
 ---
 
-## 🚀 Quick Start (Docker - 1 Command)
+## Quick Start (Docker)
 
-If you have Docker Desktop installed, you can launch PostgreSQL and the backend with:
+Copy `.env.example` to `.env` and set unique values for `DATABASE_PASSWORD`, `JWT_SECRET`, `ADMIN_SECRET_KEY`, and `WHATSAPP_OTP_HASH_SECRET` before starting. Generate secrets locally with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Keep `.env` out of source control.
+
+Then launch PostgreSQL and the backend:
 
 ```bash
-cd backend
 docker-compose up -d
 ```
 
@@ -30,22 +32,26 @@ docker-compose up -d
 
 ### 1. Install Dependencies
 ```bash
-cd backend
 npm install
 ```
 
 ### 2. Configure Environment (`.env`)
-Create or edit `.env`:
+Copy `.env.example` to `.env` and set local database credentials plus unique random values for `JWT_SECRET`, `ADMIN_SECRET_KEY`, and `WHATSAPP_OTP_HASH_SECRET`. For the existing Firebase login path, also provide Firebase Admin credentials:
 ```env
 PORT=3000
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
 DATABASE_USER=postgres
-DATABASE_PASSWORD=your_postgres_password
+DATABASE_PASSWORD=your_local_postgres_password
 DATABASE_NAME=kaamconnect_db
-JWT_SECRET=kaamconnect_secure_jwt_secret_key_prod_2026
+JWT_SECRET=<unique-random-secret-at-least-32-characters>
+ADMIN_SECRET_KEY=<separate-unique-random-secret-at-least-32-characters>
+WHATSAPP_OTP_HASH_SECRET=<separate-unique-random-secret-at-least-32-characters>
+WHATSAPP_OTP_ENABLED=false
+WHATSAPP_OTP_PROVIDER=baileys
+WHATSAPP_SESSION_PATH=./whatsapp_session
 
-# Option A: Place your Firebase Admin Service Account JSON file in the backend root
+# Option A: Place your Firebase Admin Service Account JSON file in the backend root (never commit it)
 FIREBASE_SERVICE_ACCOUNT_PATH=./serviceAccountKey.json
 
 # Option B: Use environment variables
@@ -60,6 +66,20 @@ npm run start:dev
 ```
 
 Server starts at `http://localhost:3000/api/v1`.
+
+## WhatsApp OTP
+
+To enable direct WhatsApp delivery, set `WHATSAPP_OTP_ENABLED=true`, keep `WHATSAPP_OTP_PROVIDER=baileys`, set a strong `WHATSAPP_OTP_HASH_SECRET`, and point `WHATSAPP_SESSION_PATH` at a private persistent directory. Link the sender on the host with `npm run whatsapp:pair`; do not upload the session folder to Git. The channel endpoint reports WhatsApp only when the sender and OTP database table are ready. Otherwise the Flutter client continues using Firebase SMS.
+
+The Baileys session is an account credential and must be protected like a private key. A production deployment needs an always-on backend and persistent storage for that session; an ephemeral/free filesystem cannot retain it reliably.
+
+OTP endpoints:
+
+- `GET /api/v1/auth/otp-channel`
+- `POST /api/v1/auth/whatsapp-otp/send` with `{ "phoneNumber": "+919876543210" }`
+- `POST /api/v1/auth/whatsapp-otp/verify` with `{ "phoneNumber": "+919876543210", "challengeId": "<uuid>", "code": "123456", "role": "WORKER" }`
+
+The OTP response is not proof of delivery by itself. The client must only proceed after a successful WhatsApp send response, and payment/session success must always be confirmed by the backend.
 
 ---
 

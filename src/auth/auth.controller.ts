@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Req, Get, UseGuards, HttpCode, HttpStatus, Header } from '@nestjs/common';
+import { BadRequestException, Controller, Post, Body, Req, Get, UseGuards, HttpCode, HttpStatus, Header } from '@nestjs/common';
 import { Throttle, ThrottlerGuard, SkipThrottle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
@@ -8,9 +8,13 @@ import { TelegramOtpService } from './telegram-otp.service';
 import { PhoneLoginDto } from './dto/phone-login.dto';
 import { SendWhatsAppOtpDto } from './dto/send-whatsapp-otp.dto';
 import { VerifyWhatsAppOtpDto } from './dto/verify-whatsapp-otp.dto';
+import { VerifyAppWhatsAppOtpDto } from './dto/verify-app-whatsapp-otp.dto';
 import { SendTelegramOtpDto } from './dto/send-telegram-otp.dto';
 import { VerifyTelegramOtpDto } from './dto/verify-telegram-otp.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RolesGuard } from './guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '../users/entities/user.entity';
 
 @Controller('auth')
 export class AuthController {
@@ -43,6 +47,15 @@ export class AuthController {
     };
   }
 
+  @SkipThrottle()
+  @Get('otp-channel')
+  async getOtpChannel() {
+    return {
+      success: true,
+      data: { channel: await this.whatsAppOtpService.getDeliveryChannel() },
+    };
+  }
+
   /**
    * Dispatches 6-digit verification code via WhatsApp to Indian mobile number.
    */
@@ -63,6 +76,16 @@ export class AuthController {
     };
   }
 
+  @Post('whatsapp-otp/send')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  async sendAppWhatsAppOtp(@Body() dto: SendWhatsAppOtpDto, @Req() req: Request) {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'Unknown Client';
+    const result = await this.whatsAppOtpService.sendOtp(dto, clientIp, userAgent);
+    return { success: true, message: 'OTP aapke WhatsApp number par bhej diya gaya hai.', data: result };
+  }
+
   /**
    * Verifies 6-digit WhatsApp OTP and logs in / registers the user with signed JWT.
    */
@@ -81,6 +104,16 @@ export class AuthController {
       message: 'WhatsApp verification safalta se poori ho gayi.',
       data: result,
     };
+  }
+
+  @Post('whatsapp-otp/verify')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async verifyAppWhatsAppOtp(@Body() dto: VerifyAppWhatsAppOtpDto, @Req() req: Request) {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'Unknown Client';
+    const result = await this.whatsAppOtpService.verifyOtp(dto, clientIp, userAgent);
+    return { success: true, message: 'WhatsApp verification safalta se poori ho gayi.', data: result };
   }
 
   /**
@@ -174,9 +207,10 @@ export class AuthController {
   @SkipThrottle()
   @Get('whatsapp/status')
   getWhatsAppStatus() {
+    const status = this.directWhatsApp.getStatus();
     return {
       success: true,
-      data: this.directWhatsApp.getStatus(),
+      data: { isConnected: status.isConnected, connectionState: status.connectionState },
     };
   }
 
@@ -185,8 +219,11 @@ export class AuthController {
    */
   @SkipThrottle()
   @Get('whatsapp/pair-code')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   async getPairingCode(@Req() req: Request) {
-    const phone = (req.query.phone as string) || '917900561768';
+    const phone = (req.query.phone as string) || '';
+    if (!phone) throw new BadRequestException('Pass the linked sender phone number in the phone query parameter.');
     try {
       const code = await this.directWhatsApp.requestPairingCode(phone);
       return {
@@ -209,6 +246,8 @@ export class AuthController {
    */
   @SkipThrottle()
   @Get('whatsapp/link')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @Header('Content-Type', 'text/html; charset=utf-8')
   async getWhatsAppLinkPage() {
     const status = this.directWhatsApp.getStatus();

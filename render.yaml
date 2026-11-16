@@ -1,12 +1,16 @@
 services:
-  # Free Web Service (NestJS API)
+  # Production API: Baileys requires an always-on instance and durable session storage.
   - type: web
-    name: kaamconnect-api
+    name: kaamconnect-otp-api-2026
     runtime: node
-    plan: free
+    plan: 0.5c-512mb
     region: singapore
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm run start:prod
+    disk:
+      name: whatsapp-session
+      mountPath: /opt/render/project/src/whatsapp_session
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
@@ -16,19 +20,36 @@ services:
         value: api/v1
       - key: JWT_SECRET
         generateValue: true
+      - key: ADMIN_SECRET_KEY
+        generateValue: true
       - key: JWT_EXPIRES_IN
         value: 30d
       - key: FIREBASE_PROJECT_ID
         value: kaamconnect-84f23
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: WHATSAPP_OTP_ENABLED
+        value: "true"
+      - key: WHATSAPP_OTP_PROVIDER
+        value: baileys
+      - key: WHATSAPP_SESSION_PATH
+        value: /opt/render/project/src/whatsapp_session
+      - key: WHATSAPP_OTP_HASH_SECRET
+        generateValue: true
+      - key: WHATSAPP_OTP_TTL_SECONDS
+        value: "300"
       - key: DATABASE_URL
         fromDatabase:
           name: kaamconnect-db
           property: connectionString
 
 databases:
-  # Free PostgreSQL Database (1GB storage)
+  # Minimal persistent PostgreSQL plan; the free plan expires after 30 days.
   - name: kaamconnect-db
-    plan: free
+    plan: 0.1c-256mb
     region: singapore
     databaseName: kaamconnect_db
     user: kaamconnect_user
+    diskSizeGB: 1

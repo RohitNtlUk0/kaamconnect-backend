@@ -130,7 +130,7 @@ export class UsersService {
         );
       }
 
-      this.logger.log(`Created new PostgreSQL user ${newUser.id} with role ${role} for phone ${phoneNumber}`);
+      this.logger.log(`Created new PostgreSQL user ${newUser.id} with role ${role}.`);
       return newUser;
     } catch (e) {
       this.logger.error(`Error in findOrCreateFromFirebase: ${e.message}`);
@@ -149,6 +149,59 @@ export class UsersService {
         updated_at: new Date(),
       };
     }
+  }
+
+  /**
+   * Finds or creates a WhatsApp-authenticated user without replacing an
+   * existing Firebase UID or changing an existing account's role.
+   */
+  async findOrCreateFromWhatsApp(params: {
+    phoneNumber: string;
+    role: UserRole;
+    fullName?: string;
+    deviceInfo?: string;
+  }): Promise<UserEntity> {
+    const { phoneNumber, role, fullName, deviceInfo } = params;
+    const whatsappUid = `wa_${phoneNumber.replace(/\D/g, '')}`;
+    const defaultName = fullName || (role === UserRole.WORKER ? 'Karigar Partner' : 'Customer');
+
+    return this.db.withTransaction(async (client) => {
+      const result = await client.query<UserEntity & { was_inserted: boolean }>(
+        `INSERT INTO users
+           (firebase_uid, phone_number, role, full_name, device_info, is_phone_verified, is_active)
+         VALUES ($1, $2, $3, $4, $5, TRUE, TRUE)
+         ON CONFLICT (phone_number) DO UPDATE
+           SET last_login_at = NOW(),
+               device_info = COALESCE(EXCLUDED.device_info, users.device_info),
+               updated_at = NOW()
+         RETURNING *, (xmax = 0) AS was_inserted`,
+        [whatsappUid, phoneNumber, role, defaultName, deviceInfo || null],
+      );
+      const user = result.rows[0];
+      if (!user) throw new Error('Could not load the authenticated user record.');
+      if (!user.is_active) {
+        throw new ForbiddenException('This account is disabled. Contact KaamConnect support.');
+      }
+
+      if (user.was_inserted && user.role === UserRole.WORKER) {
+        await client.query(
+          `INSERT INTO worker_profiles
+             (user_id, full_name, phone_number, profession, experience_years, hourly_rate)
+           VALUES ($1, $2, $3, 'General Technician', 2, 400.00)
+           ON CONFLICT (user_id) DO NOTHING`,
+          [user.id, user.full_name, phoneNumber],
+        );
+      } else if (user.was_inserted) {
+        await client.query(
+          `INSERT INTO customer_profiles (user_id, city, state)
+           VALUES ($1, 'Rudrapur', 'Uttarakhand')
+           ON CONFLICT (user_id) DO NOTHING`,
+          [user.id],
+        );
+      }
+
+      return user;
+    });
   }
 
   async findById(id: string): Promise<UserEntity | null> {

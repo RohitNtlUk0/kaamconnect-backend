@@ -1,60 +1,24 @@
-# KaamConnect - 100% Free Live HTTPS Backend Deployment Guide
+# KaamConnect Backend Deployment
 
-Yeh guide aapko KaamConnect ke NestJS Backend aur PostgreSQL Database ko **bina 1 rupaye kharch kiye (100% FREE)** internet par 24/7 live karne ke steps batati hai.
+## WhatsApp OTP production requirements
 
----
+The included `render.yaml` configures an always-on Render web service, a 1 GB persistent disk for the Baileys session, and PostgreSQL. The current Render workspace requires payment details before it can provision these paid resources.
 
-## Option 1: Render.com (Sabse Aasan aur Recommended - 3 Minutes Setup)
+Estimated Render baseline: **about $13.25/month** before usage charges: $7 web service, $0.25 for the 1 GB disk, and $6 PostgreSQL compute with 1 GB storage. Confirm the amount in Render before applying the Blueprint. Prices can change; see [Render pricing](https://render.com/pricing).
 
-Render.com Node.js backend aur PostgreSQL database dono **FREE** provide karta hai aur automatic **HTTPS SSL Certificate** deta hai.
+Render Free is suitable only for a temporary demo. Free web services lose local files on restarts and idle spin-down, and free PostgreSQL expires after 30 days. Baileys session files therefore need a paid persistent disk. See [Render Free limitations](https://render.com/docs/free) and [persistent disks](https://render.com/docs/disks).
 
-### Step 1: Render par Free Account Banayein
-1. Browser me open karein: **[https://render.com](https://render.com)**
-2. **"Get Started for Free"** par click karein aur apne Google account se sign in karein.
+## Deploy steps
 
-### Step 2: GitHub par Code Upload Karein (1-Click)
-1. Browser me open karein: **[https://github.com/new](https://github.com/new)**
-2. Repository Name daalein: `kaamconnect-backend`
-3. **Private** ya **Public** select karein aur **"Create repository"** dabayein.
-4. Terminal / PowerShell me yeh 3 commands chalayein:
-   ```bash
-   cd "C:\Users\jyoti\Desktop\KAAM CONNECT\backend"
-   git remote add origin https://github.com/<AAPKA_GITHUB_USERNAME>/kaamconnect-backend.git
-   git branch -M main
-   git push -u origin main
+1. Push the reviewed backend branch to `RohitNtlUk0/kaamconnect-backend`.
+2. In Render, create a Blueprint from that repository and branch. Review the paid service, disk, and database resources before applying.
+3. Add the existing Firebase Admin service-account email and private key through Render's secret fields if Firebase token login and SMS fallback must remain available. Never commit them to Git.
+4. After the service and database are live, copy the private `whatsapp_session` files to `/opt/render/project/src/whatsapp_session` using a secure transfer. Do not upload them to GitHub or include them in build artifacts. Restart the service and check `GET /api/v1/auth/otp-channel`; it should report `whatsapp` when the sender and database migration are ready.
+5. Build the Flutter app against the deployed URL:
+
+   ```powershell
+   flutter build apk --release --dart-define=KAAMCONNECT_API_BASE_URL=https://kaamconnect-otp-api-2026.onrender.com/api/v1
+   flutter build appbundle --release --dart-define=KAAMCONNECT_API_BASE_URL=https://kaamconnect-otp-api-2026.onrender.com/api/v1
    ```
 
-### Step 3: Render par 1-Click Blueprint Deploy
-1. Render Dashboard me **"New +"** button par click karein aur **"Blueprint"** chunein.
-2. Apni `kaamconnect-backend` repository select karein.
-3. Render automatic hamari banayi hui `render.yaml` file detect kar lega:
-   - ✅ **Web Service:** `kaamconnect-api` (Free Node.js plan)
-   - ✅ **Database:** `kaamconnect-db` (Free PostgreSQL plan)
-4. **"Apply"** dabayein!
-5. 2 minute me aapka live HTTPS URL ready ho jayega:
-   👉 **`https://kaamconnect-api.onrender.com/api/v1`**
-
----
-
-## Option 2: Supabase (Free Database) + Render (Free API)
-
-Agar aap Supabase ka world-class free database use karna chahte hain:
-1. **[https://supabase.com](https://supabase.com)** par free account banayein.
-2. **"New Project"** -> Name: `kaamconnect-db`.
-3. Project Settings -> Database -> **Connection String (URI)** copy karein.
-4. Render Web Service me Environment Variable `DATABASE_URL` me wahi string paste kar dein.
-
----
-
-## Step 4: Flutter App me Live URL Update Karna
-
-Jaise hi aapko aapka live HTTPS URL mile (e.g. `https://kaamconnect-api.onrender.com/api/v1`):
-1. `lib/core/config/app_config.dart` me line 13 update karein:
-   ```dart
-   static const String productionApiUrl = 'https://kaamconnect-api.onrender.com/api/v1';
-   ```
-2. Release APK build karein:
-   ```bash
-   python "C:\Users\jyoti\Desktop\KAAM CONNECT\build_apk.py"
-   ```
-3. Ab aapka APK kisi bhi real phone se poori duniya me 24/7 bina kisi local computer ke chalega!
+The Baileys session directory is a private account credential. Keep it out of Git and only transfer it to the linked production service over a secure channel.

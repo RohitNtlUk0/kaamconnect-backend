@@ -4,6 +4,7 @@ import { FirebaseAdminService } from '../firebase/firebase-admin.service';
 import { UsersService } from '../users/users.service';
 import { PhoneLoginDto } from './dto/phone-login.dto';
 import { UserRole } from '../users/entities/user.entity';
+import { timingSafeEqual } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -86,7 +87,8 @@ export class AuthService {
         },
       };
     } catch (error) {
-      this.logger.error(`Authentication error for phone ${verifiedPhone}: ${error.message}`);
+      const phoneSuffix = verifiedPhone.replace(/\D/g, '').slice(-4);
+      this.logger.error(`Authentication error for phone ending ${phoneSuffix || 'unknown'}: ${error.message}`);
 
       // Log failure in audit table
       await this.usersService.logAuthAttempt({
@@ -116,10 +118,15 @@ export class AuthService {
       throw new ForbiddenException(`Too many failed admin login attempts. Client IP locked for ${waitMin} minutes.`);
     }
 
-    const serverKey = process.env.ADMIN_SECRET_KEY || 'Admin@KaamConnect2026';
+    const serverKey = process.env.ADMIN_SECRET_KEY || '';
     const clean = (adminKey || '').trim();
+    const providedKey = Buffer.from(clean, 'utf8');
+    const configuredKey = Buffer.from(serverKey, 'utf8');
+    const keyMatches = configuredKey.length >= 32 &&
+      providedKey.length === configuredKey.length &&
+      timingSafeEqual(providedKey, configuredKey);
 
-    if (clean !== serverKey) {
+    if (!keyMatches) {
       const current = lockInfo || { count: 0, lockedUntil: 0 };
       current.count += 1;
       if (current.count >= 5) {

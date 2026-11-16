@@ -2,6 +2,8 @@ node_modules
 dist
 .env
 .git
+whatsapp_session
+serviceAccountKey.json
 .gitignore
 *.log
 npm-debug.log*

@@ -12,7 +12,7 @@ export default () => ({
     ssl: process.env.DATABASE_SSL === 'true' || !!process.env.DATABASE_URL,
   },
   jwt: {
-    secret: process.env.JWT_SECRET || 'kaamconnect_production_secret_jwt_2026_x89q2',
+    secret: process.env.JWT_SECRET || '',
     expiresIn: process.env.JWT_EXPIRES_IN || '30d',
   },
   firebase: {
@@ -22,6 +22,18 @@ export default () => ({
     privateKey: process.env.FIREBASE_PRIVATE_KEY
       ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
       : '',
+  },
+  whatsappOtp: {
+    enabled: process.env.WHATSAPP_OTP_ENABLED === 'true',
+    provider: (process.env.WHATSAPP_OTP_PROVIDER || process.env.WHATSAPP_PROVIDER || 'baileys').toLowerCase(),
+    sessionPath: process.env.WHATSAPP_SESSION_PATH || './whatsapp_session',
+    hashSecret: process.env.WHATSAPP_OTP_HASH_SECRET || '',
+    codeTtlSeconds: Number.parseInt(process.env.WHATSAPP_OTP_TTL_SECONDS || '300', 10),
+    accessToken: process.env.META_WHATSAPP_TOKEN || '',
+    phoneNumberId: process.env.META_WHATSAPP_PHONE_ID || '',
+    templateName: process.env.META_WHATSAPP_TEMPLATE_NAME || '',
+    templateLanguage: process.env.META_WHATSAPP_TEMPLATE_LANGUAGE || 'en',
+    graphApiVersion: process.env.WHATSAPP_GRAPH_API_VERSION || 'v20.0',
   },
   throttle: {
     ttl: parseInt(process.env.THROTTLE_TTL || '60000', 10),

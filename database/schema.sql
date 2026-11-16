@@ -13,7 +13,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role_enum') THEN
         CREATE TYPE user_role_enum AS ENUM (
-            'CUSTOMER', 'WORKER', 'SERVICE_PROVIDER', 'CONTRACTOR', 'BUSINESS', 'ADMIN', 'SUPER_ADMIN'
+            'CUSTOMER', 'WORKER', 'EMPLOYER', 'SERVICE_PROVIDER', 'CONTRACTOR', 'BUSINESS', 'AGENT', 'ADMIN', 'SUPER_ADMIN'
         );
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'booking_status_enum') THEN
@@ -50,6 +50,22 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS whatsapp_otp_challenges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    phone_number VARCHAR(20) NOT NULL,
+    role user_role_enum NOT NULL DEFAULT 'CUSTOMER',
+    code_hash CHAR(64) NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    sent_at TIMESTAMPTZ,
+    verified_at TIMESTAMPTZ,
+    attempt_count SMALLINT NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 5),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_otp_phone_created
+    ON whatsapp_otp_challenges(phone_number, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_otp_expiry
+    ON whatsapp_otp_challenges(expires_at);
 
 CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_number);
 CREATE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid);
